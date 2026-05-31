@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import jsPDF from "jspdf";
 import receiptJson from "./receiptJson.json";
 
-export default function ReceiptInvoice() {
+export default function ReceiptInvoice({ currentUser, onLogout }) {
   const [items, setItems] = useState(
     receiptJson.lineItems.map((item) => ({
       ...item,
@@ -161,6 +161,17 @@ export default function ReceiptInvoice() {
 
   return (
     <main className="receipt-page">
+      <section className="app-topbar">
+        <div>
+          <p className="eyebrow">Signed in</p>
+          <strong>{currentUser?.email || currentUser?.user?.email || "Receipt user"}</strong>
+        </div>
+
+        <button className="logout-btn" onClick={onLogout}>
+          Log Out
+        </button>
+      </section>
+
       <section className="hero-panel">
         <p className="eyebrow">Receipt Splitter</p>
         <h1>{receiptJson.store} Receipt</h1>

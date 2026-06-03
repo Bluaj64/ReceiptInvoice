@@ -15,20 +15,45 @@ function getReceiptStore(receipt) {
   return data?.store || receipt?.store || receipt?.merchant || "Receipt";
 }
 
+function getReceiptLocation(receipt) {
+  const data = getReceiptJson(receipt);
+  return data?.location || receipt?.location || "";
+}
+
 function getReceiptDate(receipt) {
   const data = getReceiptJson(receipt);
-  return (
-    data?.date ||
-    receipt?.date ||
-    receipt?.createdAt ||
-    receipt?.updatedAt ||
-    "N/A"
-  );
+  return data?.date || receipt?.date || "";
+}
+
+function getUploadDate(receipt) {
+  return receipt?.createdAt || receipt?.uploadedAt || receipt?.updatedAt || "";
 }
 
 function getReceiptTotal(receipt) {
   const data = getReceiptJson(receipt);
   return data?.summary?.total ?? receipt?.total ?? receipt?.summary?.total ?? 0;
+}
+
+function getReceiptDescriptions(receipt) {
+  const data = getReceiptJson(receipt);
+  const lineItems = data?.lineItems || [];
+
+  return lineItems
+    .map((item) => item?.description || "")
+    .join(" ")
+    .toLowerCase();
+}
+
+function formatDate(value) {
+  if (!value) return "N/A";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString();
 }
 
 export default function ReceiptInvoice({
@@ -62,6 +87,8 @@ export default function ReceiptInvoice({
   );
 
   const [sortBy, setSortBy] = useState("az");
+  const [receiptSearch, setReceiptSearch] = useState("");
+  const [receiptSortBy, setReceiptSortBy] = useState("uploadedNewest");
   const [toast, setToast] = useState("");
 
   useEffect(() => {
@@ -72,6 +99,64 @@ export default function ReceiptInvoice({
       }))
     );
   }, [receiptData]);
+
+  const filteredReceipts = useMemo(() => {
+    const query = receiptSearch.trim().toLowerCase();
+
+    const filtered = receipts.filter((receipt) => {
+      if (!query) return true;
+
+      const store = getReceiptStore(receipt).toLowerCase();
+      const location = getReceiptLocation(receipt).toLowerCase();
+      const receiptDate = getReceiptDate(receipt).toLowerCase();
+      const uploadDate = getUploadDate(receipt).toLowerCase();
+      const total = String(getReceiptTotal(receipt)).toLowerCase();
+      const descriptions = getReceiptDescriptions(receipt);
+
+      return (
+        store.includes(query) ||
+        location.includes(query) ||
+        receiptDate.includes(query) ||
+        uploadDate.includes(query) ||
+        total.includes(query) ||
+        descriptions.includes(query)
+      );
+    });
+
+    filtered.sort((a, b) => {
+      if (receiptSortBy === "uploadedOldest") {
+        return new Date(getUploadDate(a) || 0) - new Date(getUploadDate(b) || 0);
+      }
+
+      if (receiptSortBy === "receiptNewest") {
+        return (
+          new Date(getReceiptDate(b) || 0) - new Date(getReceiptDate(a) || 0)
+        );
+      }
+
+      if (receiptSortBy === "receiptOldest") {
+        return (
+          new Date(getReceiptDate(a) || 0) - new Date(getReceiptDate(b) || 0)
+        );
+      }
+
+      if (receiptSortBy === "totalHigh") {
+        return Number(getReceiptTotal(b) || 0) - Number(getReceiptTotal(a) || 0);
+      }
+
+      if (receiptSortBy === "totalLow") {
+        return Number(getReceiptTotal(a) || 0) - Number(getReceiptTotal(b) || 0);
+      }
+
+      if (receiptSortBy === "store") {
+        return getReceiptStore(a).localeCompare(getReceiptStore(b));
+      }
+
+      return new Date(getUploadDate(b) || 0) - new Date(getUploadDate(a) || 0);
+    });
+
+    return filtered;
+  }, [receipts, receiptSearch, receiptSortBy]);
 
   const showToast = (message) => {
     setToast(message);
@@ -247,7 +332,6 @@ export default function ReceiptInvoice({
           <input
             type="file"
             accept="image/*"
-            value=""
             onChange={(event) =>
               setSelectedFile(event.target.files?.[0] || null)
             }
@@ -264,6 +348,26 @@ export default function ReceiptInvoice({
       <section className="toolbar">
         <div className="sort-control">
           <span>Receipt history</span>
+
+          <input
+            type="search"
+            placeholder="Search store, date, total, items..."
+            value={receiptSearch}
+            onChange={(event) => setReceiptSearch(event.target.value)}
+          />
+
+          <select
+            value={receiptSortBy}
+            onChange={(event) => setReceiptSortBy(event.target.value)}
+          >
+            <option value="uploadedNewest">Upload: newest</option>
+            <option value="uploadedOldest">Upload: oldest</option>
+            <option value="receiptNewest">Receipt date: newest</option>
+            <option value="receiptOldest">Receipt date: oldest</option>
+            <option value="totalHigh">Total: high to low</option>
+            <option value="totalLow">Total: low to high</option>
+            <option value="store">Store A-Z</option>
+          </select>
 
           <button
             type="button"
@@ -284,7 +388,9 @@ export default function ReceiptInvoice({
             </button>
           )}
         </div>
+      </section>
 
+      <section className="toolbar">
         <div className="bulk-actions">
           {isLoadingReceipts && <strong>Loading receipts...</strong>}
 
@@ -293,10 +399,19 @@ export default function ReceiptInvoice({
           )}
 
           {!isLoadingReceipts &&
-            receipts.map((receipt) => {
+            receipts.length > 0 &&
+            filteredReceipts.length === 0 && (
+              <strong>No receipts match your search</strong>
+            )}
+
+          {!isLoadingReceipts &&
+            filteredReceipts.map((receipt) => {
               const receiptId = getReceiptId(receipt);
               const isActive = receiptId && receiptId === selectedReceiptId;
               const total = Number(getReceiptTotal(receipt) || 0);
+              const store = getReceiptStore(receipt);
+              const receiptDate = getReceiptDate(receipt);
+              const uploadDate = getUploadDate(receipt);
 
               return (
                 <button
@@ -305,11 +420,15 @@ export default function ReceiptInvoice({
                   className={isActive ? "generate-btn" : "secondary-btn"}
                   onClick={() => onSelectReceipt(receiptId)}
                   disabled={!receiptId || isLoadingSelectedReceipt}
-                  title={receiptId}
+                  title={`Receipt date: ${formatDate(
+                    receiptDate
+                  )} | Uploaded: ${formatDate(uploadDate)}`}
                 >
                   {isLoadingSelectedReceipt && isActive
                     ? "Loading..."
-                    : `${getReceiptStore(receipt)} • $${total.toFixed(2)}`}
+                    : `${store} • $${total.toFixed(2)} • ${formatDate(
+                        receiptDate || uploadDate
+                      )}`}
                 </button>
               );
             })}

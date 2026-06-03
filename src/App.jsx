@@ -3,8 +3,8 @@ import "./App.css";
 import ReceiptInvoice from "./ReceiptInvoice.jsx";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL;
-const TOKEN_STORAGE_KEY = "receiptAuthToken";
 const RECEIPT_API_URL = import.meta.env.VITE_RECEIPT_API_URL;
+const TOKEN_STORAGE_KEY = "receiptAuthToken";
 
 async function apiRequest(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -55,6 +55,21 @@ async function receiptApiRequest(path, token, options = {}) {
   return data;
 }
 
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      const result = reader.result;
+      const base64 = result.split(",")[1];
+      resolve(base64);
+    };
+
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 async function uploadReceiptImage(file, token) {
   const base64 = await fileToBase64(file);
 
@@ -84,21 +99,6 @@ async function fetchReceipts(token) {
 async function fetchReceiptById(receiptId, token) {
   return receiptApiRequest(`/receipts/${receiptId}`, token, {
     method: "GET",
-  });
-}
-
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      const result = reader.result;
-      const base64 = result.split(",")[1];
-      resolve(base64);
-    };
-
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
   });
 }
 
@@ -240,7 +240,6 @@ export default function App() {
   const [isLoadingReceipts, setIsLoadingReceipts] = useState(false);
   const [isLoadingSelectedReceipt, setIsLoadingSelectedReceipt] =
     useState(false);
-
   const [isProcessingReceipt, setIsProcessingReceipt] = useState(false);
   const [receiptError, setReceiptError] = useState("");
 

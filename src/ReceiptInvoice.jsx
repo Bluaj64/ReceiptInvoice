@@ -2,15 +2,51 @@ import { useEffect, useMemo, useState } from "react";
 import jsPDF from "jspdf";
 import receiptJson from "./receiptJson.json";
 
+function getReceiptId(receipt) {
+  return receipt?.receiptId || receipt?.id || receipt?.ReceiptId || "";
+}
+
+function getReceiptJson(receipt) {
+  return receipt?.receiptJson || receipt?.receipt || receipt;
+}
+
+function getReceiptStore(receipt) {
+  const data = getReceiptJson(receipt);
+  return data?.store || receipt?.store || receipt?.merchant || "Receipt";
+}
+
+function getReceiptDate(receipt) {
+  const data = getReceiptJson(receipt);
+  return (
+    data?.date ||
+    receipt?.date ||
+    receipt?.createdAt ||
+    receipt?.updatedAt ||
+    "N/A"
+  );
+}
+
+function getReceiptTotal(receipt) {
+  const data = getReceiptJson(receipt);
+  return data?.summary?.total ?? receipt?.total ?? receipt?.summary?.total ?? 0;
+}
+
 export default function ReceiptInvoice({
   currentUser,
   onLogout,
   receiptData,
+  selectedReceiptId,
   selectedFile,
   setSelectedFile,
   handleReceiptUpload,
   isProcessingReceipt,
   receiptError,
+  receipts = [],
+  isLoadingReceipts,
+  isLoadingSelectedReceipt,
+  onSelectReceipt,
+  onRefreshReceipts,
+  onClearCurrentReceipt,
 }) {
   const activeReceipt = receiptData || receiptJson;
   const lineItems = activeReceipt.lineItems || [];
@@ -211,6 +247,7 @@ export default function ReceiptInvoice({
           <input
             type="file"
             accept="image/*"
+            value=""
             onChange={(event) =>
               setSelectedFile(event.target.files?.[0] || null)
             }
@@ -222,6 +259,61 @@ export default function ReceiptInvoice({
         </form>
 
         {selectedFile && <strong>{selectedFile.name}</strong>}
+      </section>
+
+      <section className="toolbar">
+        <div className="sort-control">
+          <span>Receipt history</span>
+
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={onRefreshReceipts}
+            disabled={isLoadingReceipts}
+          >
+            {isLoadingReceipts ? "Refreshing..." : "Refresh"}
+          </button>
+
+          {receiptData && (
+            <button
+              type="button"
+              className="secondary-btn"
+              onClick={onClearCurrentReceipt}
+            >
+              Show Sample Receipt
+            </button>
+          )}
+        </div>
+
+        <div className="bulk-actions">
+          {isLoadingReceipts && <strong>Loading receipts...</strong>}
+
+          {!isLoadingReceipts && receipts.length === 0 && (
+            <strong>No saved receipts yet</strong>
+          )}
+
+          {!isLoadingReceipts &&
+            receipts.map((receipt) => {
+              const receiptId = getReceiptId(receipt);
+              const isActive = receiptId && receiptId === selectedReceiptId;
+              const total = Number(getReceiptTotal(receipt) || 0);
+
+              return (
+                <button
+                  key={receiptId}
+                  type="button"
+                  className={isActive ? "generate-btn" : "secondary-btn"}
+                  onClick={() => onSelectReceipt(receiptId)}
+                  disabled={!receiptId || isLoadingSelectedReceipt}
+                  title={receiptId}
+                >
+                  {isLoadingSelectedReceipt && isActive
+                    ? "Loading..."
+                    : `${getReceiptStore(receipt)} • $${total.toFixed(2)}`}
+                </button>
+              );
+            })}
+        </div>
       </section>
 
       {receiptError && <div className="auth-error">{receiptError}</div>}

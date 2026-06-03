@@ -30,55 +30,61 @@ async function apiRequest(path, options = {}) {
   return data;
 }
 
-async function uploadReceiptImage(file, token) {
-  const base64 = await fileToBase64(file);
+async function receiptApiRequest(path, token, options = {}) {
+  const response = await fetch(`${RECEIPT_API_URL}${path}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {}),
+    },
+    ...options,
+  });
 
-  const response = await fetch(
-    `${RECEIPT_API_URL}/receipts/upload`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        imageBase64: base64,
-        contentType: file.type,
-      }),
-    }
-  );
+  let data = null;
 
-  const data = await response.json();
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
 
   if (!response.ok) {
-    throw new Error(
-      data?.message || data?.error || "Upload failed."
-    );
+    throw new Error(data?.message || data?.error || "Receipt request failed.");
   }
 
   return data;
 }
 
+async function uploadReceiptImage(file, token) {
+  const base64 = await fileToBase64(file);
+
+  return receiptApiRequest("/receipts/upload", token, {
+    method: "POST",
+    body: JSON.stringify({
+      imageBase64: base64,
+      contentType: file.type,
+    }),
+  });
+}
+
 async function processReceipt(receiptId, token) {
-  const response = await fetch(
-    `${RECEIPT_API_URL}/receipts/process/${receiptId}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    }
-  );
+  return receiptApiRequest(`/receipts/process/${receiptId}`, token, {
+    method: "POST",
+  });
+}
 
-  const data = await response.json();
+async function fetchReceipts(token) {
+  const result = await receiptApiRequest("/receipts", token, {
+    method: "GET",
+  });
 
-  if (!response.ok) {
-    throw new Error(
-      data?.message || data?.error || "Processing failed."
-    );
-  }
+  return result?.receipts || result?.items || result || [];
+}
 
-  return data;
+async function fetchReceiptById(receiptId, token) {
+  return receiptApiRequest(`/receipts/${receiptId}`, token, {
+    method: "GET",
+  });
 }
 
 function fileToBase64(file) {
@@ -92,7 +98,6 @@ function fileToBase64(file) {
     };
 
     reader.onerror = reject;
-
     reader.readAsDataURL(file);
   });
 }
@@ -131,22 +136,22 @@ function AuthForm({ mode, onSwitchMode, onAuthSuccess }) {
         }),
       });
 
-    if (isSignup) {
-      onSwitchMode();
-      setPassword("");
-      setConfirmPassword("");
-      setError("Account created successfully. Please log in.");
-      return;
-    }
+      if (isSignup) {
+        onSwitchMode();
+        setPassword("");
+        setConfirmPassword("");
+        setError("Account created successfully. Please log in.");
+        return;
+      }
 
-    const token = result?.token || result?.sessionToken || result?.accessToken;
+      const token = result?.token || result?.sessionToken || result?.accessToken;
 
-    if (!token) {
-      throw new Error("Login succeeded, but no session token was returned.");
-    }
+      if (!token) {
+        throw new Error("Login succeeded, but no session token was returned.");
+      }
 
-    localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    onAuthSuccess(token);
+      localStorage.setItem(TOKEN_STORAGE_KEY, token);
+      onAuthSuccess(token);
     } catch (err) {
       setError(err.message || "Something went wrong.");
     } finally {
@@ -220,14 +225,39 @@ function AuthForm({ mode, onSwitchMode, onAuthSuccess }) {
 }
 
 export default function App() {
-  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY));
+  const [token, setToken] = useState(() =>
+    localStorage.getItem(TOKEN_STORAGE_KEY)
+  );
   const [user, setUser] = useState(null);
   const [authMode, setAuthMode] = useState("login");
   const [isCheckingSession, setIsCheckingSession] = useState(Boolean(token));
+
   const [receiptData, setReceiptData] = useState(null);
+  const [selectedReceiptId, setSelectedReceiptId] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
+
+  const [receipts, setReceipts] = useState([]);
+  const [isLoadingReceipts, setIsLoadingReceipts] = useState(false);
+  const [isLoadingSelectedReceipt, setIsLoadingSelectedReceipt] =
+    useState(false);
+
   const [isProcessingReceipt, setIsProcessingReceipt] = useState(false);
   const [receiptError, setReceiptError] = useState("");
+
+  const loadReceiptHistory = async (activeToken = token) => {
+    if (!activeToken) return;
+
+    setIsLoadingReceipts(true);
+
+    try {
+      const receiptList = await fetchReceipts(activeToken);
+      setReceipts(Array.isArray(receiptList) ? receiptList : []);
+    } catch (err) {
+      setReceiptError(err.message || "Failed to load receipt history.");
+    } finally {
+      setIsLoadingReceipts(false);
+    }
+  };
 
   useEffect(() => {
     let ignore = false;
@@ -273,6 +303,12 @@ export default function App() {
     };
   }, [token]);
 
+  useEffect(() => {
+    if (token && user) {
+      loadReceiptHistory(token);
+    }
+  }, [token, user]);
+
   const handleReceiptUpload = async (event) => {
     event.preventDefault();
 
@@ -289,6 +325,10 @@ export default function App() {
       const processResult = await processReceipt(uploadResult.receiptId, token);
 
       setReceiptData(processResult.receipt);
+      setSelectedReceiptId(processResult.receiptId || uploadResult.receiptId);
+      setSelectedFile(null);
+
+      await loadReceiptHistory(token);
     } catch (err) {
       setReceiptError(err.message || "Receipt upload failed.");
     } finally {
@@ -296,11 +336,45 @@ export default function App() {
     }
   };
 
+  const handleSelectReceipt = async (receiptId) => {
+    if (!receiptId) return;
+
+    setIsLoadingSelectedReceipt(true);
+    setReceiptError("");
+
+    try {
+      const result = await fetchReceiptById(receiptId, token);
+      const fullReceipt =
+        result?.receiptJson ||
+        result?.receipt?.receiptJson ||
+        result?.receipt ||
+        result;
+
+      setReceiptData(fullReceipt);
+      setSelectedReceiptId(receiptId);
+    } catch (err) {
+      setReceiptError(err.message || "Failed to load receipt.");
+    } finally {
+      setIsLoadingSelectedReceipt(false);
+    }
+  };
+
+  const handleClearCurrentReceipt = () => {
+    setReceiptData(null);
+    setSelectedReceiptId(null);
+    setReceiptError("");
+  };
+
   const handleLogout = () => {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
     setToken(null);
     setUser(null);
     setAuthMode("login");
+    setReceiptData(null);
+    setSelectedReceiptId(null);
+    setSelectedFile(null);
+    setReceipts([]);
+    setReceiptError("");
   };
 
   if (isCheckingSession) {
@@ -318,7 +392,9 @@ export default function App() {
     return (
       <AuthForm
         mode={authMode}
-        onSwitchMode={() => setAuthMode((prev) => (prev === "login" ? "signup" : "login"))}
+        onSwitchMode={() =>
+          setAuthMode((prev) => (prev === "login" ? "signup" : "login"))
+        }
         onAuthSuccess={setToken}
       />
     );
@@ -329,11 +405,18 @@ export default function App() {
       currentUser={user}
       onLogout={handleLogout}
       receiptData={receiptData}
+      selectedReceiptId={selectedReceiptId}
       selectedFile={selectedFile}
       setSelectedFile={setSelectedFile}
       handleReceiptUpload={handleReceiptUpload}
       isProcessingReceipt={isProcessingReceipt}
       receiptError={receiptError}
+      receipts={receipts}
+      isLoadingReceipts={isLoadingReceipts}
+      isLoadingSelectedReceipt={isLoadingSelectedReceipt}
+      onSelectReceipt={handleSelectReceipt}
+      onRefreshReceipts={() => loadReceiptHistory(token)}
+      onClearCurrentReceipt={handleClearCurrentReceipt}
     />
   );
 }

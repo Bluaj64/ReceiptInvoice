@@ -345,63 +345,68 @@ export default function ReceiptInvoice({
         {selectedFile && <strong>{selectedFile.name}</strong>}
       </section>
 
-      <section className="toolbar">
-        <div className="sort-control">
-          <span>Receipt history</span>
+      <section className="history-panel">
+        <div className="history-header">
+          <div>
+            <p className="eyebrow">Receipt history</p>
+            <h2>Saved Receipts</h2>
+          </div>
 
-          <input
-            type="search"
-            placeholder="Search store, date, total, items..."
-            value={receiptSearch}
-            onChange={(event) => setReceiptSearch(event.target.value)}
-          />
+          <div className="history-controls">
+            <input
+              type="search"
+              placeholder="Search store, date, total, items..."
+              value={receiptSearch}
+              onChange={(event) => setReceiptSearch(event.target.value)}
+            />
 
-          <select
-            value={receiptSortBy}
-            onChange={(event) => setReceiptSortBy(event.target.value)}
-          >
-            <option value="uploadedNewest">Upload: newest</option>
-            <option value="uploadedOldest">Upload: oldest</option>
-            <option value="receiptNewest">Receipt date: newest</option>
-            <option value="receiptOldest">Receipt date: oldest</option>
-            <option value="totalHigh">Total: high to low</option>
-            <option value="totalLow">Total: low to high</option>
-            <option value="store">Store A-Z</option>
-          </select>
+            <select
+              value={receiptSortBy}
+              onChange={(event) => setReceiptSortBy(event.target.value)}
+            >
+              <option value="uploadedNewest">Upload: newest</option>
+              <option value="uploadedOldest">Upload: oldest</option>
+              <option value="receiptNewest">Receipt date: newest</option>
+              <option value="receiptOldest">Receipt date: oldest</option>
+              <option value="totalHigh">Total: high to low</option>
+              <option value="totalLow">Total: low to high</option>
+              <option value="store">Store A-Z</option>
+            </select>
 
-          <button
-            type="button"
-            className="secondary-btn"
-            onClick={onRefreshReceipts}
-            disabled={isLoadingReceipts}
-          >
-            {isLoadingReceipts ? "Refreshing..." : "Refresh"}
-          </button>
-
-          {receiptData && (
             <button
               type="button"
               className="secondary-btn"
-              onClick={onClearCurrentReceipt}
+              onClick={onRefreshReceipts}
+              disabled={isLoadingReceipts}
             >
-              Show Sample Receipt
+              {isLoadingReceipts ? "Refreshing..." : "Refresh"}
             </button>
-          )}
-        </div>
-      </section>
 
-      <section className="toolbar">
-        <div className="bulk-actions">
-          {isLoadingReceipts && <strong>Loading receipts...</strong>}
+            {receiptData && (
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={onClearCurrentReceipt}
+              >
+                Show Sample
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="history-list">
+          {isLoadingReceipts && (
+            <div className="history-empty">Loading receipts...</div>
+          )}
 
           {!isLoadingReceipts && receipts.length === 0 && (
-            <strong>No saved receipts yet</strong>
+            <div className="history-empty">No saved receipts yet.</div>
           )}
 
           {!isLoadingReceipts &&
             receipts.length > 0 &&
             filteredReceipts.length === 0 && (
-              <strong>No receipts match your search</strong>
+              <div className="history-empty">No receipts match your search.</div>
             )}
 
           {!isLoadingReceipts &&
@@ -410,6 +415,7 @@ export default function ReceiptInvoice({
               const isActive = receiptId && receiptId === selectedReceiptId;
               const total = Number(getReceiptTotal(receipt) || 0);
               const store = getReceiptStore(receipt);
+              const location = getReceiptLocation(receipt);
               const receiptDate = getReceiptDate(receipt);
               const uploadDate = getUploadDate(receipt);
 
@@ -417,18 +423,25 @@ export default function ReceiptInvoice({
                 <button
                   key={receiptId}
                   type="button"
-                  className={isActive ? "generate-btn" : "secondary-btn"}
+                  className={`history-card ${isActive ? "history-card-active" : ""}`}
                   onClick={() => onSelectReceipt(receiptId)}
                   disabled={!receiptId || isLoadingSelectedReceipt}
-                  title={`Receipt date: ${formatDate(
-                    receiptDate
-                  )} | Uploaded: ${formatDate(uploadDate)}`}
                 >
-                  {isLoadingSelectedReceipt && isActive
-                    ? "Loading..."
-                    : `${store} • $${total.toFixed(2)} • ${formatDate(
-                        receiptDate || uploadDate
-                      )}`}
+                  <div className="history-card-main">
+                    <div>
+                      <h3>{store}</h3>
+                      <p>{location || "No location found"}</p>
+                    </div>
+
+                    <strong>${total.toFixed(2)}</strong>
+                  </div>
+
+                  <div className="history-card-meta">
+                    <span>Receipt date: {formatDate(receiptDate)}</span>
+                    <span>Uploaded: {formatDate(uploadDate)}</span>
+                  </div>
+
+                  {isActive && <span className="history-active-pill">Selected</span>}
                 </button>
               );
             })}

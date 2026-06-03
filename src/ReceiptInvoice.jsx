@@ -1,17 +1,41 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import jsPDF from "jspdf";
 import receiptJson from "./receiptJson.json";
 
-export default function ReceiptInvoice({ currentUser, onLogout }) {
+export default function ReceiptInvoice({
+  currentUser,
+  onLogout,
+  receiptData,
+  selectedFile,
+  setSelectedFile,
+  handleReceiptUpload,
+  isProcessingReceipt,
+  receiptError,
+}) {
+  const activeReceipt = receiptData || receiptJson;
+  const lineItems = activeReceipt.lineItems || [];
+  const summary = activeReceipt.summary || {};
+  const subtotal = summary.subtotal ?? 0;
+  const tax = summary.tax ?? 0;
+
   const [items, setItems] = useState(
-    receiptJson.lineItems.map((item) => ({
+    lineItems.map((item) => ({
       ...item,
-      payMode: "full", // full | split
+      payMode: "full",
     }))
   );
 
   const [sortBy, setSortBy] = useState("az");
   const [toast, setToast] = useState("");
+
+  useEffect(() => {
+    setItems(
+      lineItems.map((item) => ({
+        ...item,
+        payMode: "full",
+      }))
+    );
+  }, [receiptData]);
 
   const showToast = (message) => {
     setToast(message);
@@ -22,15 +46,19 @@ export default function ReceiptInvoice({ currentUser, onLogout }) {
     const copy = [...items];
 
     if (sortBy === "az") {
-      copy.sort((a, b) => a.description.localeCompare(b.description));
+      copy.sort((a, b) =>
+        String(a.description || "").localeCompare(String(b.description || ""))
+      );
     }
 
     if (sortBy === "price") {
-      copy.sort((a, b) => b.totalPrice - a.totalPrice);
+      copy.sort((a, b) => Number(b.totalPrice || 0) - Number(a.totalPrice || 0));
     }
 
     if (sortBy === "category") {
-      copy.sort((a, b) => a.category.localeCompare(b.category));
+      copy.sort((a, b) =>
+        String(a.category || "").localeCompare(String(b.category || ""))
+      );
     }
 
     return copy;
@@ -81,12 +109,13 @@ export default function ReceiptInvoice({ currentUser, onLogout }) {
   };
 
   const invoiceSubtotal = items.reduce((sum, item) => {
-    const owed = item.payMode === "split" ? item.totalPrice / 2 : item.totalPrice;
+    const totalPrice = Number(item.totalPrice || 0);
+    const owed = item.payMode === "split" ? totalPrice / 2 : totalPrice;
     return sum + owed;
   }, 0);
 
-  const originalSubtotal = receiptJson.summary.subtotal;
-  const taxRatio = receiptJson.summary.tax / originalSubtotal;
+  const originalSubtotal = subtotal || 0;
+  const taxRatio = originalSubtotal > 0 ? tax / originalSubtotal : 0;
   const invoiceTax = invoiceSubtotal * taxRatio;
   const invoiceTotal = invoiceSubtotal + invoiceTax;
 
@@ -108,9 +137,9 @@ export default function ReceiptInvoice({ currentUser, onLogout }) {
     doc.text("Invoice", 20, 20);
 
     doc.setFontSize(11);
-    doc.text(`Store: ${receiptJson.store}`, 20, 32);
-    doc.text(`Location: ${receiptJson.location || "N/A"}`, 20, 40);
-    doc.text(`Receipt Date: ${receiptJson.date || "N/A"}`, 20, 48);
+    doc.text(`Store: ${activeReceipt.store || "N/A"}`, 20, 32);
+    doc.text(`Location: ${activeReceipt.location || "N/A"}`, 20, 40);
+    doc.text(`Receipt Date: ${activeReceipt.date || "N/A"}`, 20, 48);
     doc.text(`Generated: ${new Date().toLocaleDateString()}`, 20, 56);
 
     let y = 70;
@@ -126,10 +155,11 @@ export default function ReceiptInvoice({ currentUser, onLogout }) {
     y += 8;
 
     items.forEach((item) => {
-      const owed = item.payMode === "split" ? item.totalPrice / 2 : item.totalPrice;
+      const totalPrice = Number(item.totalPrice || 0);
+      const owed = item.payMode === "split" ? totalPrice / 2 : totalPrice;
 
-      doc.text(item.description.substring(0, 28), 20, y);
-      doc.text(item.category.substring(0, 22), 75, y);
+      doc.text(String(item.description || "Item").substring(0, 28), 20, y);
+      doc.text(String(item.category || "Uncategorized").substring(0, 22), 75, y);
       doc.text(item.payMode === "split" ? "Split 50%" : "Full", 125, y);
       doc.text(`$${owed.toFixed(2)}`, 165, y);
 
@@ -154,7 +184,7 @@ export default function ReceiptInvoice({ currentUser, onLogout }) {
     doc.setFontSize(12);
     doc.text(`Total Due: $${invoiceTotal.toFixed(2)}`, 125, y);
 
-    doc.save(`${receiptJson.store}-invoice.pdf`);
+    doc.save(`${activeReceipt.store || "receipt"}-invoice.pdf`);
 
     showToast("Invoice downloaded.");
   };
@@ -164,7 +194,9 @@ export default function ReceiptInvoice({ currentUser, onLogout }) {
       <section className="app-topbar">
         <div>
           <p className="eyebrow">Signed in</p>
-          <strong>{currentUser?.email || currentUser?.user?.email || "Receipt user"}</strong>
+          <strong>
+            {currentUser?.email || currentUser?.user?.email || "Receipt user"}
+          </strong>
         </div>
 
         <button className="logout-btn" onClick={onLogout}>
@@ -172,12 +204,34 @@ export default function ReceiptInvoice({ currentUser, onLogout }) {
         </button>
       </section>
 
+      <section className="toolbar">
+        <form onSubmit={handleReceiptUpload} className="sort-control">
+          <span>Upload receipt</span>
+
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(event) =>
+              setSelectedFile(event.target.files?.[0] || null)
+            }
+          />
+
+          <button type="submit" disabled={isProcessingReceipt}>
+            {isProcessingReceipt ? "Processing..." : "Upload & Process"}
+          </button>
+        </form>
+
+        {selectedFile && <strong>{selectedFile.name}</strong>}
+      </section>
+
+      {receiptError && <div className="auth-error">{receiptError}</div>}
+
       <section className="hero-panel">
         <p className="eyebrow">Receipt Splitter</p>
-        <h1>{receiptJson.store} Receipt</h1>
+        <h1>{activeReceipt.store || "Receipt"} Receipt</h1>
         <p className="receipt-meta">
-          {receiptJson.location && `${receiptJson.location} • `}
-          Date: {receiptJson.date || "N/A"}
+          {activeReceipt.location && `${activeReceipt.location} • `}
+          Date: {activeReceipt.date || "N/A"}
         </p>
       </section>
 
@@ -192,11 +246,17 @@ export default function ReceiptInvoice({ currentUser, onLogout }) {
         </label>
 
         <div className="bulk-actions">
-          <button className="secondary-btn" onClick={() => setAllPayModes("full")}>
+          <button
+            className="secondary-btn"
+            onClick={() => setAllPayModes("full")}
+          >
             Pay Full For All
           </button>
 
-          <button className="secondary-btn" onClick={() => setAllPayModes("split")}>
+          <button
+            className="secondary-btn"
+            onClick={() => setAllPayModes("split")}
+          >
             Split All
           </button>
         </div>
@@ -213,22 +273,25 @@ export default function ReceiptInvoice({ currentUser, onLogout }) {
 
           <div className="items-list">
             {sortedItems.map((item) => {
+              const totalPrice = Number(item.totalPrice || 0);
               const owed =
-                item.payMode === "split" ? item.totalPrice / 2 : item.totalPrice;
+                item.payMode === "split" ? totalPrice / 2 : totalPrice;
 
               return (
                 <article key={item.id} className="receipt-card">
                   <div className="item-main">
                     <div>
-                      <h3>{item.description}</h3>
-                      <p className="category-pill">{item.category}</p>
+                      <h3>{item.description || "Item"}</h3>
+                      <p className="category-pill">
+                        {item.category || "Uncategorized"}
+                      </p>
                     </div>
 
                     <div className="item-details">
                       <span>
-                        Qty: {item.quantity} {item.unit || ""}
+                        Qty: {item.quantity ?? 1} {item.unit || ""}
                       </span>
-                      <span>Original: ${item.totalPrice.toFixed(2)}</span>
+                      <span>Original: ${totalPrice.toFixed(2)}</span>
                       <strong>You owe: ${owed.toFixed(2)}</strong>
                     </div>
                   </div>
